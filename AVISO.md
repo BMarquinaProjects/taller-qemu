@@ -158,3 +158,5 @@ Cambios de Taller (resumen):
   Modos `fpu` y `s3_fpu` con las imágenes Rust aportadas, líneas UART exactas
   y plazo de 30 s; incluidos en `todas.sh`, con unitarias sin QEMU en
   `pruebas/fpu_unitarias.py`. Verificación integrada pendiente del revisor.
+- HX711 en QEMU (v0.19.0, puente v10, trama 23): el protocolo de las células de carga con el reloj
+  virtual (`include/hw/misc/taller_hx711.h`), en el GPIO de los tres chips.

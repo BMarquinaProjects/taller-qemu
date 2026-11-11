@@ -166,8 +166,9 @@ class PruebaPullModelo(unittest.TestCase):
         armado = (RAIZ / "capas/include/hw/misc/taller_armado.h").read_text(encoding="utf-8")
         tren = (RAIZ / "capas/include/hw/misc/taller_tren.h").read_text(encoding="utf-8")
         unhilo = (RAIZ / "capas/include/hw/misc/taller_unhilo.h").read_text(encoding="utf-8")
+        hx711 = (RAIZ / "capas/include/hw/misc/taller_hx711.h").read_text(encoding="utf-8")
         pull = (RAIZ / "capas/include/hw/gpio/taller_pull.h").read_text(encoding="utf-8")
-        codigo = plantilla.replace("/* CABECERA_REAL */", (armado + tren + unhilo + pull + cab).replace("#pragma once", "")).replace(
+        codigo = plantilla.replace("/* CABECERA_REAL */", (armado + tren + unhilo + hx711 + pull + cab).replace("#pragma once", "")).replace(
             "/* MODELO_REAL */", modelo)
         self.compilar(f"#define CHIP_{chip.upper()} 1\n" + codigo)
 

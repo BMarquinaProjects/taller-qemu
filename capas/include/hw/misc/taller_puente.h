@@ -2,7 +2,8 @@
  * Puente de Taller: envía a un programa externo, por un chardev, lo que el firmware
  * hace con los pines (GPIO), SPI, PWM, I2C y RMT, con marca de tiempo virtual.
  *
- * Protocolo v9 (little-endian; v8 + UNHILO, los DS18B20 dentro de QEMU). Cabecera de 12 bytes:
+ * Protocolo v10 (little-endian; v9 + HX711, el conversor de las células de carga dentro de QEMU).
+ * Cabecera de 12 bytes:
  *   u8 tipo, u8 version (=8), u16 longitud_carga, u64 t_ns (QEMU_CLOCK_VIRTUAL)
  * Tipos (QEMU -> programa externo):
  *   1 HOLA  carga: u32 version_protocolo (=8)
@@ -71,6 +72,14 @@
  *              Copy Scratchpad, Recall E2 y Read Power Supply) imponiendo pulsos
  *              bajos por la ruta de ENTRADA_TREN. Carga de 12 bytes exactos.
  *              Lógica pura en hw/misc/taller_unhilo.h.
+ *  23 HX711 (desde v10): u8 pin_sck, u8 pin_dout, i32 a128, i32 b32, i32 a64
+ *              (cuentas de 24 bits en complemento a dos, LE; se saturan), u8 bits
+ *              (bit 0 = presente, bit 1 = RATE a VCC, 80 Hz). Da de alta,
+ *              actualiza o quita un HX711 (se identifica por DOUT); hasta 4 por
+ *              chip. QEMU contesta cada subida de PD_SCK él solo (24 bits MSB
+ *              primero, 1-3 pulsos de ganancia, apagado con PD_SCK alto > 60 µs)
+ *              imponiendo DOUT por la ruta de ENTRADA_TREN. 15 bytes exactos.
+ *              Lógica pura en hw/misc/taller_hx711.h.
  *
  * Se activa solo si existe un chardev con id "taller-puente".
  * Cada máquina recibe sus cargas mediante TallerPuenteReceptor. C3 y S3
@@ -85,7 +94,7 @@
 
 #define TYPE_TALLER_SPI "taller.spi"
 #define TALLER_PUENTE_CHARDEV "taller-puente"
-#define TALLER_PUENTE_VERSION 9
+#define TALLER_PUENTE_VERSION 10
 /* Cada cuánto se manda TIEMPO, en ns de QEMU_CLOCK_VIRTUAL. */
 #define TALLER_PUENTE_LATIDO_NS (10 * 1000 * 1000)
 
@@ -106,6 +115,7 @@ enum {
     TALLER_TRAMA_ENTRADA_ARMADA = 20,
     TALLER_TRAMA_ENTRADA_TREN = 21,
     TALLER_TRAMA_UNHILO = 22,
+    TALLER_TRAMA_HX711 = 23,
 };
 
 /* Receptor propio de la máquina; recibe una carga completa, sin cabecera. */

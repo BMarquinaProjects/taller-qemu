@@ -307,6 +307,8 @@ static void esp32_taller_recibir(void *opaque, uint8_t tipo,
         esp32_gpio_tren_entrada(datos, largo);
     } else if (tipo == TALLER_TRAMA_UNHILO) {
         esp32_gpio_unhilo(datos, largo);
+    } else if (tipo == TALLER_TRAMA_HX711) {
+        esp32_gpio_hx711(datos, largo);
     }
 }
 

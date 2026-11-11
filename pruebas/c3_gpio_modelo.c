@@ -4,6 +4,7 @@
 #include "hw/misc/taller_armado.h"
 #include "hw/misc/taller_tren.h"
 #include "hw/misc/taller_unhilo.h"
+#include "hw/misc/taller_hx711.h"
 #include "hw/gpio/taller_pull.h"
 
 typedef int SysBusDevice;

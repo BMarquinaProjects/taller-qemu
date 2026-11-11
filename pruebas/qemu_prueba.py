@@ -11,6 +11,8 @@ Pruebas de humo de taller-qemu: ejecuta un firmware y comprueba su salida (y las
   python pruebas/qemu_prueba.py <qemu-system-xtensa> analogico <analogico_prueba.flash.bin>
   python pruebas/qemu_prueba.py <qemu-system-xtensa> i2c <i2c_prueba.flash.bin>
   python pruebas/qemu_prueba.py <qemu-system-xtensa> armado <armado_prueba.flash.bin>
+  python pruebas/qemu_prueba.py <qemu-system-xtensa> unhilo <unhilo_prueba.flash.bin>
+  python pruebas/qemu_prueba.py <qemu-system-xtensa> hx711 <hx711_prueba.flash.bin>
   python pruebas/qemu_prueba.py <qemu-system-xtensa> rmt <rmt_prueba.flash.bin>
   python pruebas/qemu_prueba.py <qemu-system-xtensa> fpu <fpu_prueba.flash.bin>
   python pruebas/qemu_prueba.py <qemu-system-xtensa> spi_dma <micropython.flash.bin>
@@ -47,7 +49,7 @@ EFUSE_ECO3[13] = 0x80
 EFUSE_ECO3[22] = 0x10
 CABECERA = struct.Struct("<BBHQ")  # tipo, version, longitud_carga, t_ns
 # Versión del protocolo del puente que compila este repo (TALLER_PUENTE_VERSION).
-VERSION_PUENTE = 9
+VERSION_PUENTE = 10
 TIPO_TIEMPO = 8
 TIPO_PULL = 9
 LATIDO_NS = 10_000_000
@@ -738,6 +740,106 @@ def unhilo(qemu: str, firmware: str) -> int:
         print("FALLO", error)
     print(f"FALLO unhilo\n{buf[0][-1500:]}" if errores else
           "OK unhilo: dos DS18B20 con búsqueda, Convert T y resolución de 9 bits en tiempo virtual")
+    return 1 if errores else 0
+
+
+TIPO_HX711 = 23
+
+
+def trama_hx711(sck: int, dout: int, a128: int, b32: int, a64: int, presente: bool = True,
+                rapido: bool = False) -> bytes:
+    """HX711 (v10): u8 pin_sck, u8 pin_dout, i32 a128, i32 b32, i32 a64, u8 bits (0 presente, 1 80 Hz)."""
+    if sck == dout:
+        raise ValueError("PD_SCK y DOUT van en pines distintos")
+    bits = int(presente) | (2 if rapido else 0)
+    return CABECERA.pack(TIPO_HX711, 10, 15, 0) + struct.pack("<BBiiiB", sck, dout, a128, b32, a64, bits)
+
+
+# Lo que da de alta el script y lo que debe imprimir el sketch.
+HX711_A128, HX711_B32, HX711_A64, HX711_A128_NUEVA = -123456, 54321, -61728, 2000000
+
+
+def comprobar_hx711(texto: str) -> list:
+    errores = []
+
+    def numero(patron):
+        m = re.search(patron, texto, re.MULTILINE)
+        return None if m is None else [int(g) for g in m.groups()]
+
+    espera = numero(r"^ESPERA=(\d+)\r?$")
+    if espera is None or not 395 <= espera[0] <= 420:
+        errores.append(f"la primera lectura debía esperar los 400 ms de asentamiento (ESPERA={espera})")
+    for etiqueta, valor in (("A128", HX711_A128), ("A64", HX711_A64), ("B32", HX711_B32)):
+        if not re.search(rf"^{etiqueta}={valor}\r?$", texto, re.MULTILINE):
+            errores.append(f"{etiqueta}: se esperaba {valor}")
+    tara = numero(r"^TARA=(-?\d+) EN=(\d+)\r?$")
+    if tara is None or tara[0] != HX711_A128 or not 400 <= tara[1] <= 600:
+        errores.append(f"tare(5): se esperaba {HX711_A128} en unos 500 ms (TARA={tara})")
+    if not re.search(rf"^NETO={HX711_A128_NUEVA - HX711_A128}\r?$", texto, re.MULTILINE):
+        errores.append(f"get_value tras el cambio: se esperaba {HX711_A128_NUEVA - HX711_A128}")
+    despierta = numero(r"^DESPIERTA=(\d+) A128=(-?\d+)\r?$")
+    if despierta is None or not 395 <= despierta[0] <= 420 or despierta[1] != HX711_A128_NUEVA:
+        errores.append(f"tras power_down/power_up: 400 ms y A128={HX711_A128_NUEVA} (DESPIERTA={despierta})")
+    if "TALLER-OK hx711" not in texto:
+        errores.append("sin TALLER-OK hx711")
+    return errores
+
+
+def hx711(qemu: str, firmware: str) -> int:
+    """Un HX711 con DOUT en GPIO16 y PD_SCK en GPIO17: canales y ganancias, tara, cambio y apagado."""
+    tmp, proc, p_uart, p_puente = lanzar(qemu, firmware, True)
+    tramas: list = []
+    parar = threading.Event()
+    hilo = s_uart = s_puente = None
+    buf = [""]
+
+    def esperar_linea(linea, plazo_s):
+        patron = r"^" + re.escape(linea) + r"\r?\n"
+        fin = time.monotonic() + plazo_s
+        s_uart.settimeout(0.2)
+        while time.monotonic() < fin:
+            if re.search(patron, buf[0], re.MULTILINE):
+                return True
+            try:
+                trozo = s_uart.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not trozo:
+                break
+            buf[0] += trozo.decode(errors="replace")
+        return bool(re.search(patron, buf[0], re.MULTILINE))
+
+    try:
+        s_puente = conectar(p_puente, proc)
+        hilo = threading.Thread(target=leer_tramas, args=(s_puente, tramas, parar), daemon=True)
+        hilo.start()
+        s_uart = conectar(p_uart, proc)
+        if esperar_linea("HX711-LISTO", 60):
+            s_puente.sendall(trama_hx711(17, 16, HX711_A128, HX711_B32, HX711_A64))
+            if esperar_linea("HX711-CAMBIO", 90):
+                s_puente.sendall(trama_hx711(17, 16, HX711_A128_NUEVA, HX711_B32, HX711_A64))
+                esperar_linea("TALLER-OK hx711", 90)
+    finally:
+        proc.kill()
+        proc.wait()
+        if hilo is not None:
+            hilo.join(timeout=2)
+        parar.set()
+        for conexion in (s_puente, s_uart):
+            if conexion is not None:
+                conexion.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        tmp.cleanup()
+    errores = comprobar_hx711(buf[0])
+    if not tramas or not es_hola(tramas[0], 10):
+        errores.append("sin HOLA v10")
+    for error in errores:
+        print("FALLO", error)
+    print(f"FALLO hx711\n{buf[0][-1500:]}" if errores else
+          "OK hx711: canales, ganancias, tara, cambio y apagado con la librería de bogde en tiempo virtual")
     return 1 if errores else 0
 
 
@@ -1919,6 +2021,8 @@ if __name__ == "__main__":
         sys.exit(i2c(qemu, sys.argv[3]))
     if modo == "unhilo":
         sys.exit(unhilo(qemu, sys.argv[3]))
+    if modo == "hx711":
+        sys.exit(hx711(qemu, sys.argv[3]))
     if modo == "armado":
         sys.exit(armado(qemu, sys.argv[3]))
     if modo == "rmt":

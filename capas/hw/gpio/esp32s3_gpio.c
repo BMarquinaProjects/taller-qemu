@@ -151,6 +151,40 @@ static void esp32s3_gpio_observar_unhilo(ESP32S3GPIOState *s)
     }
 }
 
+/* HX711 (v10): el conversor de las células de carga contesta aquí mismo (M-260 de Taller). */
+void esp32s3_gpio_hx711(ESP32S3GPIOState *s, const uint8_t *datos, size_t largo)
+{
+    TallerHx711Salida salida;
+    uint8_t carga[13];
+
+    if (taller_hx711_recibir(&s->hx711, datos, largo, ESP32S3_GPIO_MASCARA, s->out, s->enable,
+                             qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL), &salida) && salida.n) {
+        esp32s3_gpio_tren_entrada(s, carga, taller_hx711_tren(&salida, carga));
+    }
+}
+
+static void esp32s3_gpio_observar_hx711(ESP32S3GPIOState *s)
+{
+    TallerHx711Salida salidas[TALLER_HX711_CHIPS];
+    int64_t ahora_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    unsigned n = taller_hx711_observar(&s->hx711, s->out, s->enable, ahora_ns, salidas);
+    int64_t cola_ns = taller_hx711_cola_ns(&s->hx711);
+
+    /* Con PD_SCK en marcha, el mismo cuanto corto que los trenes armados (M-157): un pulso de 1 µs
+     * no se puede alargar a más de 60 µs (y apagar el chip) porque la otra CPU tenga el turno. */
+    if (cola_ns > s->armado.fin_cola_ns) {
+        s->armado.fin_cola_ns = cola_ns;
+    }
+    if (taller_armado_cuanto_activo(&s->armado, ahora_ns) && !timer_pending(s->cuanto_armado)) {
+        esp32s3_gpio_cuanto_armado(s);
+    }
+
+    for (unsigned i = 0; i < n; i++) {
+        uint8_t carga[13];
+        esp32s3_gpio_tren_entrada(s, carga, taller_hx711_tren(&salidas[i], carga));
+    }
+}
+
 static void esp32s3_gpio_paso_armado(void *opaque)
 {
     ESP32S3GpioTren *t = opaque;
@@ -291,6 +325,7 @@ static void esp32s3_gpio_write(void *opaque, hwaddr addr, uint64_t value,
         taller_puente_gpio(s->out, s->enable);
         esp32s3_gpio_observar_armados(s);
         esp32s3_gpio_observar_unhilo(s);
+        esp32s3_gpio_observar_hx711(s);
     }
 }
 
@@ -356,6 +391,7 @@ static void esp32s3_gpio_reset_hold(Object *obj, ResetType type)
     }
     taller_tren_reiniciar(&s->tren);
     taller_unhilo_reiniciar(&s->unhilo);
+    taller_hx711_reiniciar(&s->hx711, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     taller_armado_reiniciar(&s->armado, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     if (cambio) {
         taller_puente_gpio(0, 0);
@@ -377,6 +413,7 @@ static void esp32s3_gpio_init(Object *obj)
                                    esp32s3_gpio_cuanto_armado, s);
     taller_tren_iniciar(&s->tren);
     taller_unhilo_iniciar(&s->unhilo);
+    taller_hx711_iniciar(&s->hx711);
     for (unsigned i = 0; i < TALLER_TREN_RANURAS; i++) {
         s->temporizadores_tren[i].gpio = s;
         s->temporizadores_tren[i].indice = i;

@@ -155,6 +155,30 @@ static void esp32c3_gpio_observar_unhilo(ESP32C3GPIOState *s)
     }
 }
 
+/* HX711 (v10): el conversor de las células de carga contesta aquí mismo (M-260 de Taller). */
+void esp32c3_gpio_hx711(ESP32C3GPIOState *s, const uint8_t *datos, size_t largo)
+{
+    TallerHx711Salida salida;
+    uint8_t carga[13];
+
+    if (taller_hx711_recibir(&s->hx711, datos, largo, ESP32C3_GPIO_MASCARA, s->out, s->enable,
+                             qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL), &salida) && salida.n) {
+        esp32c3_gpio_tren_entrada(s, carga, taller_hx711_tren(&salida, carga));
+    }
+}
+
+static void esp32c3_gpio_observar_hx711(ESP32C3GPIOState *s)
+{
+    TallerHx711Salida salidas[TALLER_HX711_CHIPS];
+    unsigned n = taller_hx711_observar(&s->hx711, s->out, s->enable,
+                                       qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL), salidas);
+
+    for (unsigned i = 0; i < n; i++) {
+        uint8_t carga[13];
+        esp32c3_gpio_tren_entrada(s, carga, taller_hx711_tren(&salidas[i], carga));
+    }
+}
+
 static void esp32c3_gpio_paso_armado(void *opaque)
 {
     ESP32C3GpioTren *t = opaque;
@@ -260,6 +284,7 @@ static void esp32c3_gpio_write(void *opaque, hwaddr addr, uint64_t value,
         taller_puente_gpio(s->out, s->enable);
         esp32c3_gpio_observar_armados(s);
         esp32c3_gpio_observar_unhilo(s);
+        esp32c3_gpio_observar_hx711(s);
     }
 }
 
@@ -324,6 +349,7 @@ static void esp32c3_gpio_reset_hold(Object *obj, ResetType type)
     }
     taller_tren_reiniciar(&s->tren);
     taller_unhilo_reiniciar(&s->unhilo);
+    taller_hx711_reiniciar(&s->hx711, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     taller_armado_reiniciar(&s->armado, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     if (cambio) {
         taller_puente_gpio(0, 0);
@@ -343,6 +369,7 @@ static void esp32c3_gpio_init(Object *obj)
     }
     taller_tren_iniciar(&s->tren);
     taller_unhilo_iniciar(&s->unhilo);
+    taller_hx711_iniciar(&s->hx711);
     for (unsigned i = 0; i < TALLER_TREN_RANURAS; i++) {
         s->temporizadores_tren[i].gpio = s;
         s->temporizadores_tren[i].indice = i;

@@ -505,7 +505,7 @@ fragmentación UART, errores y plazo compartido. La compilación de QEMU,
 la ejecución integrada de `todas.sh` en Linux y la prueba del binario Windows
 quedan para el revisor; estas unitarias no certifican el arranque real.
 
-## Protocolo del puente (v9)
+## Protocolo del puente (v10)
 
 Con `-chardev socket,id=taller-puente,host=127.0.0.1,port=<p>,server=on,wait=on`, QEMU envía tramas
 little-endian con una cabecera de 12 bytes: `u8 tipo, u8 version=8, u16 longitud_carga, u64 t_ns`.
@@ -527,6 +527,8 @@ little-endian con una cabecera de 12 bytes: `u8 tipo, u8 version=8, u16 longitud
 | 19 I2C_REGISTROS (hacia QEMU) | `u8 bus, u8 direccion, u8 registro_inicial, bytes…`: hasta 240 bytes para el espejo |
 | 20 ENTRADA_ARMADA (hacia QEMU) | `u8 pin_disparo, u8 flanco, u32 minimo_ns, u8 pin_salida, u16 n`, seguidos de `n × (u32 espera_ns, u8 nivel)`; `9 + 5·n` bytes, sin relleno |
 | 21 ENTRADA_TREN (hacia QEMU) | `u8 pin, u16 n`, seguidos de `n × (u32 espera_ns, u8 nivel)`; `3 + 5·n` bytes, sin relleno, `n ≤ 64`, nivel 0/1/2; tren inmediato desde la recepción (v8) |
+| 22 UNHILO (hacia QEMU) | `u8 pin, u8 rom[8], i16 medida, u8 bits`: un DS18B20 en 1-Wire (v9, ver abajo) |
+| 23 HX711 (hacia QEMU) | `u8 pin_sck, u8 pin_dout, i32 a128, i32 b32, i32 a64, u8 bits`: un HX711 (v10, ver abajo) |
 
 Sin ese chardev, QEMU se comporta como el de Espressif.
 
@@ -717,6 +719,45 @@ temperatura.
   EEPROM (75, 70 y 12 bits). El reset del ESP32 no le quita la tensión: conserva su scratchpad.
 - En el clásico y el S3, 1 ms tras cada cambio del bus se mantiene el cuanto corto de las dos CPU
   de los trenes armados (M-157): si no, el turno de CPU1 alarga las ranuras de CPU0.
+
+### HX711 (tipo 23, v10): el conversor de las células de carga
+
+La librería HX711 de bogde sube PD_SCK, espera 1 µs y lee DOUT, 24 veces seguidas: no da tiempo
+a preguntar fuera, y los trenes armados tienen un solo tren por flanco y sin cuenta de pulsos. Por
+eso el protocolo vive en QEMU (`capas/include/hw/misc/taller_hx711.h`, lógica pura) y el puente
+solo trae lo que convierte cada canal.
+
+- Carga `u8 pin_sck, u8 pin_dout, i32 a128, i32 b32, i32 a64, u8 bits`, 15 bytes exactos (LE):
+  las cuentas de 24 bits en complemento a dos del canal A con ganancia 128, del B con 32 y del A
+  con 64 (se saturan a ±2²³), el bit 0 de `bits`, presente (0 = quitar el chip, DOUT suelto), y
+  el bit 1, RATE a VCC (80 lecturas por segundo en lugar de 10). Un chip se identifica por su
+  DOUT; hasta 4 por chip. La misma trama con otros valores los cambia sin reiniciar nada.
+- El GPIO le cuenta cada cambio de lo que conduce el ESP32 en PD_SCK (`enable ? out : 1`). Al
+  darse de alta con PD_SCK alto (en entrada), el HX711 está apagado; al bajar PD_SCK se enciende en
+  A ×128 y DOUT baja 400 ms después (50 ms a 80 Hz). Desde ahí hay un dato cada 100 ms (12,5).
+- Con dato, cada subida de PD_SCK impone en DOUT el bit siguiente al momento (MSB primero), por la
+  ruta de `ENTRADA_TREN` con espera 0. La 25.ª sube DOUT y programa su bajada en la siguiente
+  conversión; los pulsos 26 y 27 cuentan para la ganancia de la lectura siguiente (25 = A ×128,
+  26 = B ×32, 27 = A ×64). El dato se toma al empezar a leer, con los valores de ese momento.
+- PD_SCK en alto más de 60 µs apaga el chip: al bajar se reinicia en A ×128 y vuelve a tardar
+  400 ms. El reset del ESP32 deja PD_SCK en entrada (alto): lo mismo.
+- Sin dato (DOUT alto), los pulsos no sacan nada. Mientras se mueve PD_SCK, en el clásico y el S3 se
+  mantiene 1 ms el cuanto corto de M-157. En la prueba con CPU0 siempre ocupada, sin él también
+  pasa (los 60 µs dejan más margen que las ranuras de 15 µs del 1-Wire): se deja por prudencia.
+
+## Prueba de HX711
+
+`pruebas/hx711_prueba/hx711_prueba.ino` usa la librería HX711 de bogde (0.7.5) con DOUT en GPIO16
+y PD_SCK en GPIO17, con CPU0 siempre ocupada. Tras `HX711-LISTO`, el modo `hx711` da de alta un
+HX711 (A ×128 = −123456, B ×32 = 54321, A ×64 = −61728) y exige: la primera lectura tras `begin()`
+espera los 400 ms de asentamiento, cada ganancia da su valor (con `set_gain()`, que vale para la
+lectura siguiente), `tare(5)` tarda unos 500 ms y guarda −123456; tras `HX711-CAMBIO` el script
+pone A ×128 = 2000000 y `get_value(3)` da 2123456; y `power_down()`/`power_up()` vuelve a esperar
+400 ms. La imagen de 4 MiB, `pruebas/hx711_prueba.flash.bin`, se genera como la de
+`armado_prueba` (core 3.3.12, `esp32:esp32:esp32:FlashMode=dio`). `pruebas/hx711_unitarias.py`
+compila la lógica C con un firmware simulado con los tiempos de bogde (`pruebas/hx711_logica.c`):
+encendido y asentamiento, las tres ganancias, saturación, cambio de valores, apagado de 60 µs,
+reset del ESP32, baja, 80 Hz y cargas inválidas.
 
 ## Prueba de 1-Wire
 

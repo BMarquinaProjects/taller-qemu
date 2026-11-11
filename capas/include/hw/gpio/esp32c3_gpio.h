@@ -11,6 +11,7 @@
 #include "hw/misc/taller_armado.h"
 #include "hw/misc/taller_tren.h"
 #include "hw/misc/taller_unhilo.h"
+#include "hw/misc/taller_hx711.h"
 
 #define TYPE_ESP32C3_GPIO "esp32c3.gpio"
 #define ESP32C3_GPIO(obj) OBJECT_CHECK(ESP32C3GPIOState, (obj), TYPE_ESP32C3_GPIO)
@@ -62,6 +63,7 @@ typedef struct ESP32C3GPIOState {
     ESP32C3GpioTren trenes[TALLER_ARMADO_RANURAS];
     TallerTren tren; /* ENTRADA_TREN (v8) */
     TallerUnHilo unhilo; /* UNHILO (v9): DS18B20 */
+    TallerHx711 hx711; /* HX711 (v10): células de carga */
     ESP32C3GpioTren temporizadores_tren[TALLER_TREN_RANURAS];
 } ESP32C3GPIOState;
 
@@ -76,4 +78,6 @@ void esp32c3_gpio_tren_entrada(ESP32C3GPIOState *s, const uint8_t *datos,
 void esp32c3_gpio_cancelar_tren(ESP32C3GPIOState *s, uint8_t pin);
 /* Carga UNHILO (v9) sin cabecera: alta, cambio o baja de un sensor 1-Wire. */
 void esp32c3_gpio_unhilo(ESP32C3GPIOState *s, const uint8_t *datos, size_t largo);
+/* Carga HX711 (v10) sin cabecera: alta, cambio o baja de un conversor de célula de carga. */
+void esp32c3_gpio_hx711(ESP32C3GPIOState *s, const uint8_t *datos, size_t largo);
 int esp32c3_gpio_pin_de_senal(void *opaque, int senal);
