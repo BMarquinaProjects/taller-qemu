@@ -148,7 +148,7 @@ escritura `00 AF`, ACK=0/NACK=2; RMT en GPIO10, tick de 100 ns y trenes GRB de
 bibliotecas Adafruit. Las pruebas aisladas ejecutan el código real común con
 ambos mapas y el parser/receptor real con tramas fragmentadas.
 
-Las imágenes se compilan con CLI Taller 1.5.1 y el FQBN documentado en README;
+Las imágenes se compilan con CLI Taller 1.5.1 y el FQBN documentado en [`esp32s3.md`](esp32s3.md#pruebas-s3);
 se comprueban tamaño de 4 MiB, DIO, identificador S3 y componentes en
 0x0/0x8000/0xe000/0x10000. La ejecución completa en QEMU Linux/Windows y con
 SSD1306, BME280 y Adafruit_NeoPixel queda pendiente para el revisor. WSL no pudo

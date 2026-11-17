@@ -54,5 +54,5 @@ La compilación y ejecución de QEMU siguen pendientes del revisor.
   `pull`, `c3_pull` y `s3_pull`.
 - Las 9 unitarias que se omitían sin GCC (modelos reales de los tres GPIO y los
   receptores) pasan con GCC en Linux.
-- Añadido **ENTRADA_TREN** (tipo 21, también v8), ver README: el núcleo ya la
+- Añadido **ENTRADA_TREN** (tipo 21, también v8), ver [`puente.md`](puente.md#entrada_tren-tipo-21-v8): el núcleo ya la
   enviaba al ver HOLA v8; sin ella, el estado final de un contacto no llegaba.

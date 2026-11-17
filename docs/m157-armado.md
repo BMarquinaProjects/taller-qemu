@@ -244,7 +244,7 @@ por faltar el cuanto pendiente tras el último paso.
 
 `pruebas/todas.sh` elimina el reintento y ejecuta, una vez cada una, la imagen
 original y `pruebas/armado_ocupado.flash.bin` con el mismo verificador `armado`.
-README documenta la variante ocupada y cómo regenerarla; esta entrega reutiliza
+[`esp32.md`](esp32.md#prueba-de-trenes-armados) documenta la variante ocupada y cómo regenerarla; esta entrega reutiliza
 su imagen ya compilada. Verificación local con `PYTHONIOENCODING=utf-8` y MSVC:
 `python -m unittest discover -s pruebas -p '*_unitarias.py'` descubre 152 pruebas,
 143 correctas y 9 omitidas por arneses que exigen GCC/Clang. Pasan también
