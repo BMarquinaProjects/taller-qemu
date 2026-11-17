@@ -3,11 +3,11 @@
 > Referencia de [taller-qemu](../README.md). Los demás documentos están en el [índice](../README.md#documentación).
 
 Con `-chardev socket,id=taller-puente,host=127.0.0.1,port=<p>,server=on,wait=on`, QEMU envía tramas
-little-endian con una cabecera de 12 bytes: `u8 tipo, u8 version=8, u16 longitud_carga, u64 t_ns`.
+little-endian con una cabecera de 12 bytes: `u8 tipo, u8 version=10, u16 longitud_carga, u64 t_ns`.
 
 | tipo | carga |
 |---|---|
-| 1 HOLA | `u32 version_protocolo` (= 8) |
+| 1 HOLA | `u32 version_protocolo` (= 10) |
 | 2 GPIO | `u64 niveles, u64 salidas` (bit n = GPIO n) |
 | 3 SPI  | `u8 bus` (clásico: 2 = HSPI, 3 = VSPI; C3/S3: **2 = SPI2/FSPI**) + bytes MOSI de una transacción, troceados si superan 4096 bytes |
 | 4 PWM | `u8 gpio, u32 frecuencia_mHz, u32 ciclo_ppm` (9 bytes, sin relleno) |
@@ -123,7 +123,7 @@ La versión 7 añade TIEMPO: un latido cada 10 ms virtuales con la hora del ESP3
 receptor la sepa aunque el firmware no toque ningún periférico (el arranque o un programa que solo
 usa el Serial). Taller lo usa como reloj de los escenarios. Un receptor que no conozca el tipo 8 lo salta.
 La versión 6 añade RMT a la versión 5, conserva las cargas anteriores y acepta las
-tramas entrantes anteriores. HOLA y todas las tramas salientes anuncian ahora 8.
+tramas entrantes anteriores. HOLA y todas las tramas salientes anuncian ahora 10.
 La versión 5 añade ENTRADA_ARMADA y DISPARO a la versión 4, conservando sus cargas.
 La versión 4 añade I2C a la versión 3, conservando las cargas anteriores. La versión 3
 añade PWM y ANALOGICO a la versión 2. La frecuencia se expresa en milihercios
